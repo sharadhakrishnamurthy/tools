@@ -279,6 +279,16 @@ input[type=checkbox]{width:16px;height:16px;accent-color:var(--mw-teal);cursor:p
         </div>
         <button class="add-row-btn no-print" onclick="addBuildRow()">+ Add build item</button>
         <div class="total-line">Total Resource Hours: <span id="buildHoursTotalLine">0</span> hrs <span class="sep">|</span> Total Build Cost: <span id="buildTotalLine">$0</span></div>
+
+        <p class="cr-subheader-mw" style="margin-top:20px;">Effort Timeline (Resources &amp; Working Schedule)</p>
+        <p class="card-desc">Splits the Total Resource Hours above across your team size into a months / weeks / days / hours timeline, assuming a 6-hour working day and a 5-day working week (1 week = 30 hrs, 1 month = 4 weeks = 120 hrs). Informational only — does not affect COGS or Final Price.</p>
+        <div class="field-grid">
+          <div class="field">
+            <label>Number of Resources</label>
+            <input type="number" id="buildResourceCount" min="1" step="1" value="1" oninput="recalcAll()">
+          </div>
+        </div>
+        <div class="total-line">Hours per resource: <span id="buildHoursPerResourceLine">0</span> hrs <span class="sep">|</span> Timeline: <span id="buildTimelineLine">0 hrs</span></div>
       </div>
     </section>
 
@@ -587,6 +597,7 @@ const DEFAULTS = {
   batchDiscount:50,
   lastVerified:'',
   osInclude:false, osDocsPerMonth:'', osRetentionValue:'', osRetentionUnit:'months', osRatePerDoc:0.0009,
+  buildResourceCount:1,
 };
 
 const RATE_CARD_DATE = 'Jul 2026';
@@ -611,6 +622,7 @@ function freshState(){
     lastVerified:DEFAULTS.lastVerified,
     osInclude:DEFAULTS.osInclude, osDocsPerMonth:DEFAULTS.osDocsPerMonth, osRetentionValue:DEFAULTS.osRetentionValue,
     osRetentionUnit:DEFAULTS.osRetentionUnit, osRatePerDoc:DEFAULTS.osRatePerDoc,
+    buildResourceCount:DEFAULTS.buildResourceCount,
   };
 }
 
@@ -680,6 +692,29 @@ function useEnrichmentVolumeForOpenSearch(){
 }
 function buildCogsComponent(basis, hoursVal, rateVal, costVal){
   return basis === 'cost' ? num(costVal) : (num(hoursVal) * num(rateVal));
+}
+
+/* Effort Timeline: informational split of hours into months/weeks/days/hours.
+   Fixed working-schedule assumptions: 6 hrs/day, 5 days/week, 4 weeks/month.
+   Does not feed into COGS or Final Price. */
+const WORK_HOURS_PER_DAY = 6, WORK_DAYS_PER_WEEK = 5, WORK_WEEKS_PER_MONTH = 4;
+const WORK_HOURS_PER_WEEK = WORK_HOURS_PER_DAY * WORK_DAYS_PER_WEEK;        // 30
+const WORK_HOURS_PER_MONTH = WORK_HOURS_PER_WEEK * WORK_WEEKS_PER_MONTH;    // 120
+function effortTimelineBreakdown(hours){
+  let h = Math.max(0, num(hours));
+  const months = Math.floor(h / WORK_HOURS_PER_MONTH); h -= months * WORK_HOURS_PER_MONTH;
+  const weeks = Math.floor(h / WORK_HOURS_PER_WEEK); h -= weeks * WORK_HOURS_PER_WEEK;
+  const days = Math.floor(h / WORK_HOURS_PER_DAY); h -= days * WORK_HOURS_PER_DAY;
+  const hrs = Math.round(h * 100) / 100;
+  return { months, weeks, days, hours: hrs };
+}
+function formatEffortTimeline(b){
+  const parts = [];
+  if(b.months) parts.push(b.months + (b.months===1 ? ' month' : ' months'));
+  if(b.weeks) parts.push(b.weeks + (b.weeks===1 ? ' week' : ' weeks'));
+  if(b.days) parts.push(b.days + (b.days===1 ? ' day' : ' days'));
+  if(b.hours || parts.length===0) parts.push(b.hours + (b.hours===1 ? ' hr' : ' hrs'));
+  return parts.join(', ');
 }
 
 /* ============================= RENDER: ENRICHMENTS ============================= */
@@ -973,6 +1008,7 @@ function recalcAll(){
   state.osRetentionValue = document.getElementById('osRetentionValue').value;
   state.osRetentionUnit = document.getElementById('osRetentionUnit').value;
   state.osRatePerDoc = num(document.getElementById('osRatePerDoc').value);
+  state.buildResourceCount = Math.max(1, num(document.getElementById('buildResourceCount').value) || 1);
 
   renderEnrichTable();
   renderBuildTable();
@@ -1003,6 +1039,10 @@ function recalcAll(){
   document.getElementById('buildTotalLine').textContent = fmt(build$);
   document.getElementById('buildHoursTotalLine').textContent = Math.round(buildHrs).toLocaleString('en-US');
   document.getElementById('maintTotalLine').textContent = fmt(maint);
+
+  const hoursPerResource = buildHrs / state.buildResourceCount;
+  document.getElementById('buildHoursPerResourceLine').textContent = (Math.round(hoursPerResource*100)/100).toLocaleString('en-US');
+  document.getElementById('buildTimelineLine').textContent = formatEffortTimeline(effortTimelineBreakdown(hoursPerResource));
 
   document.getElementById('s-cogs').textContent = fmt(cogs);
   document.getElementById('s-arr').textContent = fmt(finalPrice);
@@ -1046,6 +1086,7 @@ function hydrateFormFields(){
   document.getElementById('osRetentionValue').value = state.osRetentionValue;
   document.getElementById('osRetentionUnit').value = state.osRetentionUnit || 'months';
   document.getElementById('osRatePerDoc').value = state.osRatePerDoc;
+  document.getElementById('buildResourceCount').value = state.buildResourceCount || 1;
   hydrateCompareShared();
 }
 
@@ -1093,6 +1134,8 @@ function exportExcel(){
     ['TOTALS'],
     ['LLM Cost /yr (pass-through)', Math.round(s.llm)],
     ['Build Resource Hours', Math.round(s.buildHrs)],
+    ['Number of Resources', state.buildResourceCount],
+    ['Effort Timeline (per resource)', formatEffortTimeline(effortTimelineBreakdown(s.buildHrs / state.buildResourceCount))],
     ['Build $ Total', Math.round(s.build)],
     ['Build Component used in COGS', Math.round(s.buildComponent)],
     ['Maintenance Total /yr', Math.round(s.maint)],
@@ -1208,6 +1251,8 @@ function exportPDF(){
   sectionTitle('Totals');
   row('LLM Cost / yr (pass-through)', fmt(s.llm));
   row('Build Resource Hours', Math.round(s.buildHrs));
+  row('Number of Resources', state.buildResourceCount);
+  row('Effort Timeline (per resource)', formatEffortTimeline(effortTimelineBreakdown(s.buildHrs / state.buildResourceCount)));
   row('Build $ Total', fmt(s.build));
   row('Maintenance Total / yr', fmt(s.maint));
   row('LLM COGS (Hours × Rate)', fmt(s.llmCogsRaw));

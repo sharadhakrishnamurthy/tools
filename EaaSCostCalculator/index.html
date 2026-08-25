@@ -61,7 +61,7 @@ a{color:var(--mw-teal);}
 /* ---------- Layout ---------- */
 .layout{display:grid;grid-template-columns:1fr 320px;gap:0;align-items:start;}
 @media (max-width:1040px){.layout{grid-template-columns:1fr;}}
-.main{padding:28px 32px 80px;max-width:1180px;}
+.main{padding:28px 32px 80px;width:100%;box-sizing:border-box;}
 .summary-col{
   position:sticky;top:0;align-self:start;padding:36px 26px 40px;
   border-left:1px solid var(--mw-grey);min-height:100vh;
@@ -262,7 +262,7 @@ input[type=checkbox]{width:16px;height:16px;accent-color:var(--mw-teal);cursor:p
         <span class="chevron">▾</span>
       </div>
       <div class="card-body">
-        <p class="card-desc">One-time, non-LLM build tasks. Each item has Resource Hours (effort) and a Build Cost ($). The COGS Build Basis toggle in Margins decides whether Build cost is calculated from the hours total or the $ total below.</p>
+        <p class="card-desc">One-time, non-LLM build tasks. Enter either Resource Hours or Build Cost ($) — the other field auto-calculates using the Blended Rate set in Margins (Hours × Rate = Cost). The COGS Build Basis toggle in Margins decides whether Build cost is calculated from the hours total or the $ total below.</p>
         <div style="overflow-x:auto;">
         <table class="linetable" id="buildTable">
           <thead>
@@ -755,6 +755,11 @@ function updateBuild(i,key,val){
   if(key==='cost' || key==='hours') val = num(val);
   if(key==='include') val = !!val;
   state.buildItems[i][key] = val;
+  const rate = num(state.blendedRate);
+  /* Two-way link between Resource Hours and Build Cost via the blended rate: whichever field
+     was just edited drives the other (hours * rate = cost). Only applies when a rate is set. */
+  if(key==='hours' && rate>0){ state.buildItems[i].cost = Math.round(val*rate*100)/100; }
+  else if(key==='cost' && rate>0){ state.buildItems[i].hours = Math.round((val/rate)*100)/100; }
   recalcAll();
 }
 function addBuildRow(){ state.buildItems.push({name:'', hours:'', cost:'', include:true}); recalcAll(); }
